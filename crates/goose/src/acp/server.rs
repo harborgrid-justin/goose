@@ -976,6 +976,20 @@ fn build_replay_tool_chain_meta(
             continue;
         }
 
+        if message.role != Role::Assistant {
+            if let Some(closed_tool_chain) = close_tool_chain(
+                &mut active_tool_chain_id,
+                &mut active_tool_chain_request_ids,
+                &mut active_tool_chain_fallback_titles,
+                &mut tool_chain_ids_by_request,
+            ) {
+                insert_replay_tool_chain_meta(
+                    &mut replay_tool_chain_meta_by_request,
+                    closed_tool_chain,
+                );
+            }
+        }
+
         for content_item in &message.content {
             match content_item {
                 MessageContent::Text(_) => {
@@ -5290,6 +5304,48 @@ print(\"hello, world\")
             replay_tool_chain_meta.get("req_2"),
             Some(&ReplayToolChainMeta {
                 chain_id: "req_1".to_string(),
+                summary: "running commands".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_build_replay_tool_chain_meta_resets_chain_on_non_text_user_turn() {
+        let shell_args_1 = serde_json::json!({"command": "cargo fmt"});
+        let shell_args_2 = serde_json::json!({"command": "cargo test"});
+        let first_assistant_message = Message::assistant().with_tool_request(
+            "req_1",
+            Ok(
+                CallToolRequestParams::new("developer__shell")
+                    .with_arguments(shell_args_1.as_object().unwrap().clone()),
+            ),
+        );
+        let user_message = Message::user().with_image("aGVsbG8=", "image/png");
+        let second_assistant_message = Message::assistant().with_tool_request(
+            "req_2",
+            Ok(
+                CallToolRequestParams::new("developer__shell")
+                    .with_arguments(shell_args_2.as_object().unwrap().clone()),
+            ),
+        );
+
+        let replay_tool_chain_meta = build_replay_tool_chain_meta(&[
+            first_assistant_message,
+            user_message,
+            second_assistant_message,
+        ]);
+
+        assert_eq!(
+            replay_tool_chain_meta.get("req_1"),
+            Some(&ReplayToolChainMeta {
+                chain_id: "req_1".to_string(),
+                summary: "running commands".to_string(),
+            })
+        );
+        assert_eq!(
+            replay_tool_chain_meta.get("req_2"),
+            Some(&ReplayToolChainMeta {
+                chain_id: "req_2".to_string(),
                 summary: "running commands".to_string(),
             })
         );
