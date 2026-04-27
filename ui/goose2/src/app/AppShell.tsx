@@ -32,6 +32,7 @@ import { resolveSessionCwd } from "@/features/projects/lib/sessionCwdSelection";
 import { perfLog } from "@/shared/lib/perfLog";
 import { useProviderInventoryStore } from "@/features/providers/stores/providerInventoryStore";
 import { sanitizeReplayMessages } from "@/features/chat/lib/replaySanitizer";
+import { GlobalComposerPill } from "@/shared/ui/GlobalComposerPill";
 
 export type AppView =
   | "home"
@@ -342,6 +343,14 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
     [createNewTab],
   );
 
+  const handleGlobalCompose = useCallback(
+    async (text: string) => {
+      const session = await createNewTab(DEFAULT_CHAT_TITLE);
+      chatStore.setPendingFirstMessage(session.id, text);
+    },
+    [createNewTab, chatStore],
+  );
+
   const handleNewChatInProject = useCallback(
     (projectId: string) => {
       const project = projectStore.projects.find((p) => p.id === projectId);
@@ -648,8 +657,8 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
   );
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <TopBar onSettingsClick={() => openSettings()} />
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-dot-grid text-[var(--text-default-alex)]">
+      <TopBar onSettingsClick={() => openSettings()} activeView={activeView} />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div
@@ -752,6 +761,10 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
         initialWorkingDir={createProjectInitialWorkingDir}
         editingProject={editingProjectProp}
       />
+
+      {activeView !== "chat" && (
+        <GlobalComposerPill onSend={handleGlobalCompose} />
+      )}
     </div>
   );
 }

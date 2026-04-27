@@ -51,9 +51,9 @@ const EXCEPTIONS = {
       "Controller regression coverage now spans model/provider rollback, stale usage resets, compact-before-send, and queued-persona auto-compaction support checks in one hook suite.",
   },
   "src/features/chat/stores/chatStore.ts": {
-    limit: 520,
+    limit: 560,
     justification:
-      "Chat runtime state, queued-message persistence, replay loading flags, and usage snapshot tracking still live together in one Zustand store.",
+      "Chat runtime state, queued-message persistence, replay loading flags, usage snapshot tracking, and pendingFirstMessage staging (for the global composer pill's auto-submit handoff) still live together in one Zustand store. Slice-extraction pass deferred to a follow-up.",
   },
   "src/features/chat/ui/AgentModelPicker.tsx": {
     limit: 570,

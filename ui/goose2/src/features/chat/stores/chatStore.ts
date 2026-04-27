@@ -68,6 +68,7 @@ interface ChatStoreState {
   sessionStateById: Record<string, SessionChatRuntime>;
   queuedMessageBySession: Record<string, QueuedMessage>;
   draftsBySession: Record<string, string>;
+  pendingFirstMessageBySession: Record<string, string>;
   activeSessionId: string | null;
   isConnected: boolean;
   loadingSessionIds: Set<string>;
@@ -113,6 +114,8 @@ interface ChatStoreActions {
   dismissQueuedMessage: (sessionId: string) => void;
   setDraft: (sessionId: string, text: string) => void;
   clearDraft: (sessionId: string) => void;
+  setPendingFirstMessage: (sessionId: string, text: string) => void;
+  consumePendingFirstMessage: (sessionId: string) => string | undefined;
   setSessionLoading: (sessionId: string, loading: boolean) => void;
   setScrollTargetMessage: (
     sessionId: string,
@@ -131,6 +134,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   sessionStateById: {},
   queuedMessageBySession: {},
   draftsBySession: loadCachedDrafts(),
+  pendingFirstMessageBySession: {},
   activeSessionId: null,
   isConnected: false,
   loadingSessionIds: new Set<string>(),
@@ -450,6 +454,26 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     persistDrafts(get().draftsBySession);
   },
 
+  // Pending first message (auto-submit on session creation)
+  setPendingFirstMessage: (sessionId, text) =>
+    set((state) => ({
+      pendingFirstMessageBySession: {
+        ...state.pendingFirstMessageBySession,
+        [sessionId]: text,
+      },
+    })),
+
+  consumePendingFirstMessage: (sessionId) => {
+    const text = get().pendingFirstMessageBySession[sessionId];
+    if (text === undefined) return undefined;
+    set((state) => {
+      const { [sessionId]: _removed, ...rest } =
+        state.pendingFirstMessageBySession;
+      return { pendingFirstMessageBySession: rest };
+    });
+    return text;
+  },
+
   // Session loading (replay)
   setSessionLoading: (sessionId, loading) =>
     set((state) => {
@@ -497,12 +521,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const { [sessionId]: ____, ...remainingDrafts } = state.draftsBySession;
       const { [sessionId]: _____, ...remainingTargets } =
         state.scrollTargetMessageBySession;
+      const { [sessionId]: ______, ...remainingPendingFirst } =
+        state.pendingFirstMessageBySession;
       return {
         messagesBySession: rest,
         sessionStateById: remainingSessionState,
         queuedMessageBySession: remainingQueued,
         draftsBySession: remainingDrafts,
         scrollTargetMessageBySession: remainingTargets,
+        pendingFirstMessageBySession: remainingPendingFirst,
         activeSessionId:
           state.activeSessionId === sessionId ? null : state.activeSessionId,
       };

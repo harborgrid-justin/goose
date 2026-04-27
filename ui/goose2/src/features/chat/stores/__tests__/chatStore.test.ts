@@ -25,6 +25,7 @@ describe("chatStore", () => {
       sessionStateById: {},
       queuedMessageBySession: {},
       draftsBySession: {},
+      pendingFirstMessageBySession: {},
       activeSessionId: null,
       isConnected: false,
     });
@@ -187,6 +188,7 @@ describe("chatStore draft localStorage persistence", () => {
       sessionStateById: {},
       queuedMessageBySession: {},
       draftsBySession: {},
+      pendingFirstMessageBySession: {},
       activeSessionId: null,
       isConnected: false,
     });
@@ -245,6 +247,7 @@ describe("chatStore session loading state", () => {
       sessionStateById: {},
       queuedMessageBySession: {},
       draftsBySession: {},
+      pendingFirstMessageBySession: {},
       activeSessionId: null,
       isConnected: false,
       loadingSessionIds: new Set<string>(),
@@ -292,5 +295,45 @@ describe("chatStore session loading state", () => {
     useChatStore.getState().setSessionLoading("s1", false);
 
     expect(useChatStore.getState().loadingSessionIds.size).toBe(0);
+  });
+
+  describe("pending first message", () => {
+    it("setPendingFirstMessage stores by sessionId", () => {
+      useChatStore.getState().setPendingFirstMessage("s1", "hello");
+      expect(useChatStore.getState().pendingFirstMessageBySession.s1).toBe(
+        "hello",
+      );
+    });
+
+    it("consumePendingFirstMessage returns and clears the entry", () => {
+      useChatStore.getState().setPendingFirstMessage("s1", "hello");
+      expect(useChatStore.getState().consumePendingFirstMessage("s1")).toBe(
+        "hello",
+      );
+      expect(
+        useChatStore.getState().consumePendingFirstMessage("s1"),
+      ).toBeUndefined();
+      expect(
+        useChatStore.getState().pendingFirstMessageBySession.s1,
+      ).toBeUndefined();
+    });
+
+    it("consumePendingFirstMessage returns undefined for unknown session", () => {
+      expect(
+        useChatStore.getState().consumePendingFirstMessage("never-set"),
+      ).toBeUndefined();
+    });
+
+    it("isolates pending messages across sessions", () => {
+      useChatStore.getState().setPendingFirstMessage("s1", "first");
+      useChatStore.getState().setPendingFirstMessage("s2", "second");
+
+      expect(useChatStore.getState().consumePendingFirstMessage("s1")).toBe(
+        "first",
+      );
+      expect(useChatStore.getState().pendingFirstMessageBySession.s2).toBe(
+        "second",
+      );
+    });
   });
 });

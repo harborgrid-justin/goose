@@ -728,6 +728,20 @@ export function useChatSessionController({
     sessionId,
   ]);
 
+  // Auto-submit any first message staged by the global composer pill.
+  // Read imperatively so this effect doesn't re-fire on unrelated store changes;
+  // `consumePendingFirstMessage` is one-shot (read + delete), so even if the
+  // effect runs multiple times the message is sent at most once.
+  useEffect(() => {
+    if (!sessionId) return;
+    const pending = useChatStore
+      .getState()
+      .consumePendingFirstMessage(sessionId);
+    if (pending) {
+      void sendMessage(pending);
+    }
+  }, [sessionId, sendMessage]);
+
   return {
     session,
     project,

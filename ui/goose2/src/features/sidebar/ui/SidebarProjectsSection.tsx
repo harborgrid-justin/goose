@@ -330,6 +330,7 @@ export function SidebarProjectsSection({
             : "opacity-0 max-h-0 overflow-hidden",
       )}
     >
+      <div className="mx-3 mb-1 h-px bg-[var(--color-gray-200)]" />
       <div
         className={cn(
           "group flex items-center transition-all duration-300",
@@ -338,10 +339,10 @@ export function SidebarProjectsSection({
       >
         <span
           className={cn(
-            "text-xs font-light uppercase tracking-wider text-muted-foreground flex-1 pl-3",
+            "text-[10px] text-[var(--text-default-alex)] flex-1 pl-3",
             labelTransition,
             labelVisible
-              ? "opacity-100 w-auto"
+              ? "opacity-25 w-auto"
               : "opacity-0 w-0 overflow-hidden",
           )}
         >
@@ -467,6 +468,7 @@ export function SidebarProjectsSection({
         onDragLeave={handleRecentsDragLeave}
         onDrop={handleRecentsDrop}
       >
+        <div className="mx-3 mb-1 h-px bg-[var(--color-gray-200)]" />
         <div
           className={cn(
             "relative group flex items-center transition-all duration-300",
@@ -475,10 +477,10 @@ export function SidebarProjectsSection({
         >
           <span
             className={cn(
-              "text-xs font-light uppercase tracking-wider text-muted-foreground flex-1 pl-3",
+              "text-[10px] text-[var(--text-default-alex)] flex-1 pl-3",
               labelTransition,
               labelVisible
-                ? "opacity-100 w-auto"
+                ? "opacity-25 w-auto"
                 : "opacity-0 w-0 overflow-hidden",
             )}
           >

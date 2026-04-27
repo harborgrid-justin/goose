@@ -299,7 +299,7 @@ export function Sidebar({
       )}
       style={{ width: collapsed ? 54 : width }}
     >
-      <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-background [--muted-foreground:var(--text-subtle)]">
+      <div className="flex h-full flex-col overflow-hidden rounded-chrome bg-[var(--surface-chrome)] [--muted-foreground:var(--text-muted-alex)]">
         <div
           className={cn(
             "flex-shrink-0 pt-3",
@@ -367,7 +367,7 @@ export function Sidebar({
                 "mb-4 flex items-center w-full rounded-md transition-all duration-300 ease-out",
                 collapsed
                   ? "justify-center p-3 text-muted-foreground"
-                  : "gap-2 border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-transparent",
+                  : "gap-2 border-b border-[var(--surface-button)] px-2.5 py-1.5 text-[var(--text-body-alex)] text-muted-foreground hover:text-foreground hover:bg-transparent",
               )}
             >
               <Search className="size-3.5 flex-shrink-0 text-placeholder" />
