@@ -1,10 +1,11 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { SearchBar } from "@/shared/ui/SearchBar";
 import { Button, buttonVariants } from "@/shared/ui/button";
+import { useFileImportZone } from "@/shared/hooks/useFileImportZone";
+import { useSetTopBarActions } from "@/app/contexts/TopBarActionsContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,7 +39,7 @@ import { getPersonaSource } from "@/features/agents/lib/personaPresentation";
 
 export function AgentsView() {
   const { t } = useTranslation(["agents", "common"]);
-  const [search, setSearch] = useState("");
+  const setTopBarActions = useSetTopBarActions();
   const [deletingPersona, setDeletingPersona] = useState<Persona | null>(null);
 
   const personas = useAgentStore((s) => s.personas);
@@ -55,18 +56,6 @@ export function AgentsView() {
     deletePersona,
     refreshFromDisk,
   } = usePersonas();
-
-  const lowerSearch = search.toLowerCase();
-
-  const filteredPersonas = useMemo(
-    () =>
-      personas.filter(
-        (p) =>
-          p.displayName.toLowerCase().includes(lowerSearch) ||
-          p.systemPrompt.toLowerCase().includes(lowerSearch),
-      ),
-    [personas, lowerSearch],
-  );
 
   const handleSavePersona = useCallback(
     async (data: CreatePersonaRequest | UpdatePersonaRequest) => {
@@ -218,66 +207,76 @@ export function AgentsView() {
     }
   }, [handleImportFileBytes, t, validateImportFile]);
 
+  const { isDragOver, dropHandlers } = useFileImportZone({
+    onImportFile: handleImportFileBytes,
+    validateFile: validateImportFile,
+    onImportError: handleImportError,
+  });
+
+  const handleNewPersona = useCallback(() => {
+    openPersonaEditor();
+  }, [openPersonaEditor]);
+
+  useEffect(() => {
+    const pillCls =
+      "h-8 rounded-full bg-[var(--surface-button)] px-3 text-[14px] text-black/70 hover:bg-[var(--surface-button)]/80";
+    setTopBarActions(
+      <>
+        <Button
+          type="button"
+          variant="ghost"
+          className={pillCls}
+          onClick={() => void handleImportPicker()}
+        >
+          <Upload className="mr-2 size-4" />
+          {t("common:actions.import")}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className={pillCls}
+          onClick={handleNewPersona}
+        >
+          <Plus className="mr-2 size-4" />
+          {t("view.newPersona")}
+        </Button>
+      </>,
+    );
+    return () => setTopBarActions(null);
+  }, [setTopBarActions, t, handleImportPicker, handleNewPersona]);
+
   return (
     <div className="flex flex-1 flex-col h-full min-h-0">
       <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="max-w-5xl mx-auto w-full px-6 py-8 space-y-5 page-transition">
-          {/* Header */}
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="text-lg font-semibold font-display tracking-tight">
-                {t("view.title")}
-              </h1>
-              <p className="text-xs text-muted-foreground">
-                {t("view.description")}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline-flat"
-                size="sm"
-                onClick={() => void handleImportPicker()}
-              >
-                <Upload className="w-3.5 h-3.5" />
-                {t("common:actions.import")}
-              </Button>
-              <Button
-                type="button"
-                variant="outline-flat"
-                size="sm"
-                onClick={() => openPersonaEditor()}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                {t("view.newPersona")}
-              </Button>
-            </div>
-          </div>
-
-          {/* Search */}
-          <SearchBar
-            value={search}
-            onChange={setSearch}
-            placeholder={t("view.searchPlaceholder")}
+        <div className="max-w-7xl mx-auto w-full px-6 py-8 page-transition">
+          <PersonaGallery
+            personas={personas}
+            onSelectPersona={(p) => openPersonaEditor(p, "details")}
+            onEditPersona={(p) => openPersonaEditor(p, "edit")}
+            onDuplicatePersona={handleDuplicatePersona}
+            onDeletePersona={handleDeletePersona}
+            onExportPersona={handleExportPersona}
+            isLoading={personasLoading}
+            dropHandlers={dropHandlers}
+            isDragOver={isDragOver}
           />
-
-          {/* Personas section */}
-          <section aria-labelledby="personas-heading">
-            <PersonaGallery
-              personas={filteredPersonas}
-              onSelectPersona={(p) => openPersonaEditor(p, "details")}
-              onEditPersona={(p) => openPersonaEditor(p, "edit")}
-              onDuplicatePersona={handleDuplicatePersona}
-              onDeletePersona={handleDeletePersona}
-              onExportPersona={handleExportPersona}
-              onCreatePersona={() => openPersonaEditor()}
-              onImportFile={handleImportFileBytes}
-              validateImportFile={validateImportFile}
-              onImportError={handleImportError}
-              isLoading={personasLoading}
-            />
-          </section>
         </div>
+
+        {/* Bottom fade — same soft gradient mask as Skills page */}
+        <div
+          className="pointer-events-none sticky bottom-0 left-0 h-64 w-full"
+          style={{
+            background:
+              "linear-gradient(to bottom, rgba(222,222,222,0) 0%, var(--canvas) 100%)",
+            backdropFilter: "blur(3px)",
+            WebkitBackdropFilter: "blur(3px)",
+            maskImage:
+              "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 50%, black 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.4) 50%, black 100%)",
+          }}
+          aria-hidden="true"
+        />
       </div>
 
       {/* Persona editor modal */}

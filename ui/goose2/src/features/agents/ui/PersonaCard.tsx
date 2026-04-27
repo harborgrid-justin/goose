@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MoreVertical, Copy, Pencil, Trash2, Download } from "lucide-react";
+import figureUrl from "@/assets/agents/figure.png";
 import { cn } from "@/shared/lib/cn";
-import { Avatar, AvatarImage, AvatarFallback } from "@/shared/ui/avatar";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -11,7 +10,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import { useAvatarSrc } from "@/shared/hooks/useAvatarSrc";
 import type { Persona } from "@/shared/types/agents";
 import { getPersonaSource } from "@/features/agents/lib/personaPresentation";
 
@@ -37,14 +35,9 @@ export function PersonaCard({
   const { t } = useTranslation(["agents", "common"]);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const initials = persona.displayName.charAt(0).toUpperCase();
-  const avatarSrc = useAvatarSrc(persona.avatar);
   const personaSource = getPersonaSource(persona);
   const canEditPersona = personaSource === "custom";
   const canDeletePersona = personaSource !== "builtin";
-  const providerModelLabel = [persona.provider, persona.model]
-    .filter(Boolean)
-    .join(" / ");
 
   const handleCardKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget || menuOpen) {
@@ -65,14 +58,30 @@ export function PersonaCard({
       onKeyDown={handleCardKeyDown}
       tabIndex={0}
       className={cn(
-        "group relative flex flex-col items-center gap-3 rounded-xl border p-5 cursor-pointer",
-        "bg-background transition-colors duration-200 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2",
-        "hover:bg-accent/50",
-        isActive ? "border-border ring-1 ring-ring" : "border-border",
+        "group relative flex flex-col items-center cursor-pointer px-3 py-4",
+        "transition-colors duration-200",
+        isActive && "bg-black/[0.03]",
       )}
     >
-      {/* Dropdown trigger */}
-      <div className="absolute right-2 top-2">
+      {/* Single shared cutout figure — visual placeholder; real per-persona avatars deferred */}
+      <img
+        src={figureUrl}
+        alt=""
+        aria-hidden="true"
+        className="h-[220px] w-auto select-none"
+      />
+
+      <div className="mt-3 h-px w-[149px] bg-black/30" />
+
+      <span className="mt-3 inline-flex h-5 items-center rounded-full bg-[var(--surface-button)] px-[6px] pb-[3px] text-[14px] text-[var(--text-title-alex)]">
+        {persona.displayName}
+      </span>
+
+      <p className="mt-3 line-clamp-6 w-[149px] text-[16px] leading-[20px] text-[var(--text-muted-alex)]">
+        {persona.systemPrompt}
+      </p>
+
+      <div className="absolute top-2 right-2 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button
@@ -82,12 +91,9 @@ export function PersonaCard({
               aria-label={t("card.options")}
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(event) => event.stopPropagation()}
-              className={cn(
-                "size-6 rounded-md text-muted-foreground hover:text-foreground",
-                menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-              )}
+              className="size-6 rounded-md text-muted-foreground hover:text-foreground"
             >
-              <MoreVertical className="size-4" />
+              <MoreVertical className="size-3.5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={4}>
@@ -101,10 +107,12 @@ export function PersonaCard({
               <Copy className="size-3.5" />
               {t("common:actions.duplicate")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onExport?.(persona)}>
-              <Download className="size-3.5" />
-              {t("common:actions.export")}
-            </DropdownMenuItem>
+            {onExport && (
+              <DropdownMenuItem onSelect={() => onExport(persona)}>
+                <Download className="size-3.5" />
+                {t("common:actions.export")}
+              </DropdownMenuItem>
+            )}
             {canDeletePersona && (
               <DropdownMenuItem
                 variant="destructive"
@@ -117,45 +125,6 @@ export function PersonaCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-
-      {/* Avatar */}
-      <Avatar className="h-12 w-12">
-        <AvatarImage src={avatarSrc ?? undefined} alt={persona.displayName} />
-        <AvatarFallback className="text-sm font-semibold">
-          {initials}
-        </AvatarFallback>
-      </Avatar>
-
-      {/* Name */}
-      <h3 className="text-sm font-medium text-center leading-tight">
-        {persona.displayName}
-      </h3>
-
-      {/* Built-in badge */}
-      {personaSource === "builtin" && (
-        <Badge variant="secondary" className="text-[10px]">
-          {t("common:labels.builtIn")}
-        </Badge>
-      )}
-      {personaSource === "file" && (
-        <Badge variant="secondary" className="text-[10px]">
-          {t("card.fileBacked")}
-        </Badge>
-      )}
-
-      {/* System prompt preview */}
-      <p className="text-xs text-muted-foreground text-center line-clamp-2 w-full">
-        {persona.systemPrompt}
-      </p>
-
-      {/* Provider/model badge */}
-      {providerModelLabel && (
-        <Badge variant="secondary" className="max-w-full min-w-0 text-[10px]">
-          <span className="block max-w-full truncate">
-            {providerModelLabel}
-          </span>
-        </Badge>
-      )}
     </div>
   );
 }

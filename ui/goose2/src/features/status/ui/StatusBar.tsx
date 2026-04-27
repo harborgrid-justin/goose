@@ -31,7 +31,7 @@ export function StatusBar({
     <div
       className={cn(
         "flex h-6 w-full items-center justify-between",
-        "bg-background/80 px-3 text-xs text-muted-foreground",
+        "bg-transparent px-3 text-xs text-muted-foreground",
       )}
     >
       <div className="flex items-center gap-1.5 min-w-0">

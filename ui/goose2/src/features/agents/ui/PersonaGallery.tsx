@@ -1,12 +1,9 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
-import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 import type { Persona } from "@/shared/types/agents";
 import { PersonaCard } from "@/features/agents/ui/PersonaCard";
-import { useFileImportZone } from "@/shared/hooks/useFileImportZone";
 
 interface PersonaGalleryProps {
   personas: Persona[];
@@ -16,23 +13,19 @@ interface PersonaGalleryProps {
   onDuplicatePersona: (persona: Persona) => void;
   onDeletePersona: (persona: Persona) => void;
   onExportPersona?: (persona: Persona) => void;
-  onCreatePersona: () => void;
-  onImportFile?: (fileBytes: number[], fileName: string) => void;
-  validateImportFile?: (file: Pick<File, "name" | "type">) => string | null;
-  onImportError?: (message: string) => void;
   isLoading?: boolean;
+  dropHandlers?: React.HTMLAttributes<HTMLElement>;
+  isDragOver?: boolean;
 }
 
 function SkeletonCard() {
   return (
-    <div
-      aria-hidden="true"
-      className="flex flex-col items-center gap-3 rounded-xl border border-border p-5"
-    >
-      <Skeleton className="h-12 w-12 rounded-full" />
-      <Skeleton className="h-4 w-24" />
-      <Skeleton className="h-3 w-full" />
-      <Skeleton className="h-3 w-3/4" />
+    <div aria-hidden="true" className="flex flex-col items-center px-3 py-4">
+      <Skeleton className="h-[220px] w-[110px]" />
+      <Skeleton className="mt-3 h-px w-[149px]" />
+      <Skeleton className="mt-3 h-5 w-20" />
+      <Skeleton className="mt-3 h-4 w-full" />
+      <Skeleton className="mt-1 h-4 w-3/4" />
     </div>
   );
 }
@@ -45,19 +38,11 @@ export function PersonaGallery({
   onDuplicatePersona,
   onDeletePersona,
   onExportPersona,
-  onCreatePersona,
-  onImportFile,
-  validateImportFile,
-  onImportError,
   isLoading = false,
+  dropHandlers,
+  isDragOver = false,
 }: PersonaGalleryProps) {
   const { t } = useTranslation("agents");
-  const { fileInputRef, isDragOver, dropHandlers, handleFileChange } =
-    useFileImportZone({
-      onImportFile: onImportFile ?? (() => {}),
-      validateFile: validateImportFile,
-      onImportError,
-    });
   const sorted = useMemo(() => {
     const builtins = personas
       .filter((p) => p.isBuiltin)
@@ -70,21 +55,27 @@ export function PersonaGallery({
 
   if (isLoading) {
     return (
-      <div
+      <section
         role="status"
         aria-label={t("gallery.loading")}
-        className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4"
+        className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-x-12 gap-y-16 p-8"
       >
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />
-      </div>
+      </section>
     );
   }
 
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+    <section
+      {...dropHandlers}
+      className={cn(
+        "grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-x-12 gap-y-16 rounded-tile p-8 transition-colors",
+        isDragOver && "ring-2 ring-ring ring-offset-2",
+      )}
+    >
       {sorted.map((persona) => (
         <PersonaCard
           key={persona.id}
@@ -97,40 +88,6 @@ export function PersonaGallery({
           onExport={onExportPersona}
         />
       ))}
-
-      {/* Create new card */}
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={onCreatePersona}
-        aria-label={t("gallery.createAria")}
-        {...dropHandlers}
-        className={cn(
-          "flex h-auto flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-5",
-          "text-muted-foreground",
-          "hover:border-border hover:text-muted-foreground hover:bg-accent/50",
-          isDragOver
-            ? "border-border bg-muted/50 text-muted-foreground"
-            : "border-border",
-        )}
-      >
-        <Plus className="size-8" />
-        <span className="text-sm font-medium">{t("gallery.new")}</span>
-        {onImportFile && (
-          <span className="text-[11px] text-muted-foreground">
-            {t("gallery.dropFile")}
-          </span>
-        )}
-      </Button>
-      {onImportFile && (
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json,application/json"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-      )}
-    </div>
+    </section>
   );
 }

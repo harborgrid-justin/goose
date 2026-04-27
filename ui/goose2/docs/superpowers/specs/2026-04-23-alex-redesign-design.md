@@ -644,18 +644,21 @@ composer.
 
 ### 7.1 Persona card body — rebuilt
 
-**File:** `src/features/agents/ui/PersonaCard.tsx` (161 lines — full
-render replacement; functionality preserved)
+**File:** `src/features/agents/ui/PersonaCard.tsx` (161 → 130 lines —
+full render replacement; functionality preserved)
 
 ```
-[cutout figure]           ~108-114px × ~215-226px (portrait)
+[cutout figure]           ~110px × ~220px (portrait)
                            object-fit: contain, no surface
-─────────────              1px horizontal rule, width ~149px
+─────────────              1px horizontal rule, width 149px
 [Name-pill]                bg [--surface-button], rounded-full, h-5,
                            14px Cash Sans Regular #19191a, px-6 pb-3
-Description text           16px Regular, color: [--text-muted],
-                           line-height: 20, width 149px,
-                           up to ~6 lines before truncation
+Description text           Renders persona.systemPrompt with
+                           line-clamp-2; 16px Regular,
+                           color: [--text-muted], width 149px
+                           (the data model has `systemPrompt` not
+                           `description`; original card already
+                           rendered this field as the body paragraph)
 ```
 
 No card surface. No border, no background, no padding on the cell.
@@ -665,8 +668,42 @@ Active state (`isActive === true`): subtle background tint on the whole
 cell container (not the photo) — `bg-black/[0.03]` on a cell with
 enough padding to show the tint. Replaces the old `ring-1 ring-ring`.
 
-Menu trigger (edit/duplicate/delete/export): `MoreHorizontal` icon that
-appears on `group-hover`, positioned near the name pill.
+Menu trigger (edit/duplicate/delete/export): `MoreVertical` icon
+positioned `absolute top-2 right-2`. Visibility uses opacity, not
+`display`, so the menu stays in the DOM tab order:
+`opacity-0 transition-opacity focus-within:opacity-100
+group-hover:opacity-100`. This preserves keyboard accessibility — Tab
+reaches the kebab, focus-within reveals it. The kebab's
+`<Button>` keeps `onClick={(e) => e.stopPropagation()}` and
+`onKeyDown={(e) => e.stopPropagation()}` so triggering the menu
+doesn't also fire the card's `onSelect`.
+
+Aria label uses the existing `t("card.options")` key (no new i18n
+strings introduced for the redesign).
+
+### 7.1.1 Toolbar — moved to TopBar (revised 2026-04-27)
+
+Mirroring the Skills page (§6.5), at the Phase 4 visual review the
+inline page-body header ("Agents" + subtitle), SearchBar, and the
+inline "Import" / "New Persona" buttons were removed. The same
+TopBarActionsProvider context Skills uses now serves Agents:
+
+- AgentsView calls `useFileImportZone()` directly (lifted up from
+  PersonaGallery), holding `dropHandlers` + `isDragOver` locally
+- AgentsView pushes a 2-button action set ("Import", "New Persona")
+  to the TopBar slot via `useSetTopBarActions()` on mount; cleared on
+  unmount
+- PersonaGallery becomes a passive grid renderer that accepts
+  `dropHandlers` + `isDragOver` props; the section wrapper carries the
+  drop handlers so the entire gallery is a drop target with a
+  `ring-2 ring-ring ring-offset-2` highlight when `isDragOver`
+- The dashed-border "Create new" card that previously sat as the last
+  grid cell is removed entirely; New Persona moves to TopBar
+- Grid container bumped `max-w-5xl` → `max-w-7xl` so 4+ persona
+  columns fit on wider windows (already matched `auto-fill, minmax`)
+
+No new i18n strings introduced. Existing keys reused:
+`common:actions.import`, `view.newPersona`.
 
 ### 7.2 Grid layout
 

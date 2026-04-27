@@ -1843,6 +1843,28 @@ Task 4.2 imports `src/assets/agents/figure.png` directly.
 
 ### Task 4.2: Replace `PersonaCard` body render
 
+**Corrections applied during implementation (2026-04-27):**
+- Plan called for `persona.description`; the actual data model has
+  `persona.systemPrompt` only. Used `systemPrompt` with `line-clamp-2`
+  to keep long prompts from breaking layout. Original card already
+  rendered this field as the body paragraph.
+- Plan referenced `t("card.optionsAria", { name })` — that key does
+  not exist in `agents.json`. Kept existing `t("card.options")` aria
+  label; introducing new i18n strings is out of scope for the redesign.
+- Preserved `onClick={(e) => e.stopPropagation()}` and
+  `onKeyDown={(e) => e.stopPropagation()}` on the kebab `<Button>`
+  even though the plan's snippet omitted them. Without these, clicking
+  the kebab also fires the card's `onSelect` — a real bug.
+- Kebab visibility: plan said `hidden group-hover:block`; switched to
+  `opacity-0 transition-opacity focus-within:opacity-100
+  group-hover:opacity-100` so keyboard-only users can Tab to the menu.
+  `display: none` removes the element from tab order entirely; opacity
+  preserves it and `focus-within` reveals on focus.
+
+**Original task content preserved here for reference:**
+
+### Task 4.2 (original): Replace `PersonaCard` body render
+
 **Files:**
 - Modify: `ui/goose2/src/features/agents/ui/PersonaCard.tsx`
 
@@ -1967,7 +1989,32 @@ Expected: baseline 4 errors only.
 
 ---
 
-### Task 4.3: Adjust `PersonaGallery` grid
+### Task 4.3: Adjust `PersonaGallery` grid (+ TopBar move scope expansion 2026-04-27)
+
+**Scope expansion at visual review:** mirroring Phase 3's Skills move,
+AgentsView's inline header / SearchBar / button row are removed and
+"Import" + "New Persona" move to the TopBar via the same
+`TopBarActionsProvider` context. The dashed-border "Create new" card
+in PersonaGallery is removed entirely. PersonaGallery becomes a
+passive grid renderer; AgentsView owns `useFileImportZone()` and
+passes `dropHandlers` + `isDragOver` down. Grid container
+`max-w-5xl` → `max-w-7xl`.
+
+**Files modified beyond the original task:**
+- `ui/goose2/src/features/agents/ui/AgentsView.tsx`: lift
+  `useFileImportZone`, drop SearchBar + page header + inline button
+  row + `search`/`filteredPersonas` state, add `useEffect` that
+  pushes 2 actions to TopBar, render PersonaGallery with `personas`
+  directly + drop handlers
+- `ui/goose2/src/features/agents/ui/PersonaGallery.tsx`: drop the
+  Create-new Button + hidden file input + `useFileImportZone` hook
+  + 4 props (`onCreatePersona`, `onImportFile`, `validateImportFile`,
+  `onImportError`); accept `dropHandlers` + `isDragOver` props;
+  apply drop handlers to the section wrapper
+
+**Original task content preserved here for reference:**
+
+### Task 4.3 (original): Adjust `PersonaGallery` grid
 
 **Files:**
 - Modify: `ui/goose2/src/features/agents/ui/PersonaGallery.tsx`
