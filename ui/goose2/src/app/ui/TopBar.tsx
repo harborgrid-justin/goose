@@ -7,6 +7,7 @@ import type { AppView } from "@/app/AppShell";
 interface TopBarProps {
   onSettingsClick?: () => void;
   activeView?: AppView;
+  chatSessionTitle?: string;
   className?: string;
 }
 
@@ -20,10 +21,16 @@ const PAGE_LABELS: Partial<Record<AppView, string>> = {
 export function TopBar({
   onSettingsClick,
   activeView,
+  chatSessionTitle,
   className,
 }: TopBarProps) {
   const { t } = useTranslation("settings");
-  const pageLabel = activeView ? PAGE_LABELS[activeView] : undefined;
+  const pageLabel =
+    activeView === "chat"
+      ? chatSessionTitle
+      : activeView
+        ? PAGE_LABELS[activeView]
+        : undefined;
   const viewActions = useTopBarActions();
 
   return (

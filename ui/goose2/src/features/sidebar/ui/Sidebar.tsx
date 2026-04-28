@@ -293,13 +293,18 @@ export function Sidebar({
   return (
     <div
       className={cn(
-        "relative h-full",
+        "relative h-3/4 max-h-full",
         !isResizing && "transition-[width] duration-300 ease-in-out",
         className,
       )}
       style={{ width: collapsed ? 54 : width }}
     >
-      <div className="flex h-full flex-col overflow-hidden rounded-chrome bg-[var(--surface-chrome)] [--muted-foreground:var(--text-muted-alex)]">
+      <div
+        className="flex h-full flex-col overflow-hidden rounded-chrome bg-[var(--surface-chrome)] backdrop-blur-md [--muted-foreground:var(--text-muted-alex)]"
+        style={{
+          WebkitBackdropFilter: "blur(12px)",
+        }}
+      >
         <div
           className={cn(
             "flex-shrink-0 pt-3",
@@ -406,8 +411,8 @@ export function Sidebar({
               title={collapsed ? t("navigation.home") : undefined}
               aria-label={t("navigation.home")}
               className={cn(
-                "flex items-center w-full text-[13px] transition-colors duration-200 rounded-md",
-                "gap-2.5 p-3",
+                "flex items-center w-full text-[13px] font-light transition-colors duration-200 rounded-md",
+                "gap-2 px-3 py-2",
                 activeView === "home"
                   ? "font-medium text-foreground"
                   : "text-muted-foreground hover:text-foreground",
@@ -441,8 +446,8 @@ export function Sidebar({
                   onMouseEnter={onItemMouseEnter}
                   title={collapsed ? item.label : undefined}
                   className={cn(
-                    "flex items-center w-full text-[13px] transition-colors duration-200 rounded-md",
-                    "gap-2.5 p-3",
+                    "flex items-center w-full text-[13px] font-light transition-colors duration-200 rounded-md",
+                    "gap-2 px-3 py-2",
                     isActive
                       ? "font-medium text-foreground"
                       : "text-muted-foreground hover:text-foreground",

@@ -25,6 +25,17 @@
   font-display: swap;
 }
 
+/* Light variant — filename is a best-guess (matches the Regulator naming
+   pattern). If the CDN doesn't ship Light, browser synthesizes from Regular. */
+@font-face {
+  font-family: "Cash Sans";
+  src: url("https://cash-f.squarecdn.com/static/fonts/cashsans/v2/CashSans-Light.woff2")
+    format("woff2");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
   /* reset */
   --color-*: initial;

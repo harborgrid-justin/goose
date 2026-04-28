@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { Button, buttonVariants } from "@/shared/ui/button";
 import { useFileImportZone } from "@/shared/hooks/useFileImportZone";
 import { useSetTopBarActions } from "@/app/contexts/TopBarActionsContext";
-import { BottomFade } from "@/shared/ui/BottomFade";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -248,22 +247,18 @@ export function AgentsView() {
 
   return (
     <div className="flex flex-1 flex-col h-full min-h-0">
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="max-w-7xl mx-auto w-full px-6 py-8 page-transition">
-          <PersonaGallery
-            personas={personas}
-            onSelectPersona={(p) => openPersonaEditor(p, "details")}
-            onEditPersona={(p) => openPersonaEditor(p, "edit")}
-            onDuplicatePersona={handleDuplicatePersona}
-            onDeletePersona={handleDeletePersona}
-            onExportPersona={handleExportPersona}
-            isLoading={personasLoading}
-            dropHandlers={dropHandlers}
-            isDragOver={isDragOver}
-          />
-        </div>
-
-        <BottomFade />
+      <div className="flex-1 min-h-0 overflow-hidden page-transition">
+        <PersonaGallery
+          personas={personas}
+          onSelectPersona={(p) => openPersonaEditor(p, "details")}
+          onEditPersona={(p) => openPersonaEditor(p, "edit")}
+          onDuplicatePersona={handleDuplicatePersona}
+          onDeletePersona={handleDeletePersona}
+          onExportPersona={handleExportPersona}
+          isLoading={personasLoading}
+          dropHandlers={dropHandlers}
+          isDragOver={isDragOver}
+        />
       </div>
 
       {/* Persona editor modal */}

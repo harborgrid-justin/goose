@@ -2,6 +2,24 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MoreVertical, Copy, Pencil, Trash2, Download } from "lucide-react";
 import figureUrl from "@/assets/agents/figure.png";
+import ralphUrl from "@/assets/agents/ralph.png";
+import scoutUrl from "@/assets/agents/scout.png";
+import soloUrl from "@/assets/agents/solo.png";
+import tulsiUrl from "@/assets/agents/tulsi.png";
+
+// Name-based persona avatars — Tulsi-personal placeholder.
+// Real per-persona avatar storage on the data model is a separate spec;
+// unknown displayNames fall back to the shared cutout figure.
+const PERSONA_FIGURES: Record<string, string> = {
+  ralph: ralphUrl,
+  scout: scoutUrl,
+  solo: soloUrl,
+  tulsi: tulsiUrl,
+};
+
+function resolvePersonaFigure(displayName: string): string {
+  return PERSONA_FIGURES[displayName.toLowerCase()] ?? figureUrl;
+}
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import {
@@ -58,26 +76,28 @@ export function PersonaCard({
       onKeyDown={handleCardKeyDown}
       tabIndex={0}
       className={cn(
-        "group relative flex flex-col items-center cursor-pointer px-3 py-4",
+        "group relative flex w-[200px] shrink-0 cursor-pointer flex-col py-4",
         "transition-colors duration-200",
         isActive && "bg-black/[0.03]",
       )}
     >
-      {/* Single shared cutout figure — visual placeholder; real per-persona avatars deferred */}
-      <img
-        src={figureUrl}
-        alt=""
-        aria-hidden="true"
-        className="h-[220px] w-auto select-none"
-      />
+      {/* Fixed-height figure box: figure aligned to bottom, centered horizontally;
+          wider figures bleed into the gap between cells (intentional editorial overflow) */}
+      <div className="flex h-[420px] w-full items-end justify-center">
+        <img
+          src={resolvePersonaFigure(persona.displayName)}
+          alt=""
+          aria-hidden="true"
+          className="h-full w-auto max-w-none select-none"
+        />
+      </div>
 
-      <div className="mt-3 h-px w-[149px] bg-black/30" />
+      <div className="mt-4 h-px w-full bg-black/30" />
 
-      <span className="mt-3 inline-flex h-5 items-center rounded-full bg-[var(--surface-button)] px-[6px] pb-[3px] text-[14px] text-[var(--text-title-alex)]">
-        {persona.displayName}
-      </span>
-
-      <p className="mt-3 line-clamp-6 w-[149px] text-[16px] leading-[20px] text-[var(--text-muted-alex)]">
+      <p className="mt-4 line-clamp-6 h-[144px] w-full text-[16px] leading-[24px] text-[var(--text-muted-alex)]">
+        <span className="mr-1 inline-flex h-5 items-center rounded-full bg-[var(--surface-button)] px-[6px] pb-[3px] align-middle text-[14px] text-[var(--text-title-alex)]">
+          {persona.displayName}
+        </span>
         {persona.systemPrompt}
       </p>
 
