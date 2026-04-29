@@ -14,7 +14,7 @@ export const HOME_WIDGET_CATALOG = [
     category: "tile",
     labelKey: "widgets.mondayBrief.label",
     descriptionKey: "widgets.mondayBrief.description",
-    defaultSize: { width: 300, height: 180 },
+    defaultSize: { width: 300, height: 200 },
     Component: MondayBriefTile,
   },
   {
@@ -38,7 +38,7 @@ export const HOME_WIDGET_CATALOG = [
     category: "app",
     labelKey: "widgets.clock.label",
     descriptionKey: "widgets.clock.description",
-    defaultSize: { width: 260, height: 132 },
+    defaultSize: { width: 240, height: 240 },
     Component: ClockWidget,
   },
   {
@@ -46,7 +46,7 @@ export const HOME_WIDGET_CATALOG = [
     category: "app",
     labelKey: "widgets.weather.label",
     descriptionKey: "widgets.weather.description",
-    defaultSize: { width: 280, height: 220 },
+    defaultSize: { width: 280, height: 240 },
     Component: WeatherWidget,
   },
   {

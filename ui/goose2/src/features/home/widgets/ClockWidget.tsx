@@ -5,44 +5,56 @@ import { useLocaleFormatting } from "@/shared/i18n";
 export function ClockWidget() {
   const { t } = useTranslation("home");
   const [time, setTime] = useState(new Date());
-  const { formatDate, getTimeParts } = useLocaleFormatting();
+  const { formatDate } = useLocaleFormatting();
 
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const { hour, minute, dayPeriod } = getTimeParts(time, {
+  const day = formatDate(time, { weekday: "short" })
+    .replace(/\.$/, "")
+    .toUpperCase();
+  const date = formatDate(time, {
+    month: "numeric",
+    day: "numeric",
+  });
+  const currentLabel = `${t("widgets.clock.current")}: ${formatDate(time, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+  })}`;
+  const minuteAngle = time.getMinutes() * 6 + time.getSeconds() * 0.1;
+  const hourAngle = ((time.getHours() % 12) + time.getMinutes() / 60) * 30;
 
   return (
-    <section className="flex h-full w-full flex-col justify-between rounded-lg border border-black/10 bg-white/75 p-5 text-[var(--text-default-alex)] backdrop-blur">
-      <p className="text-[13px] text-[var(--text-muted-alex)]">
-        {t("widgets.clock.current")}
-      </p>
-      <div>
-        <div
-          className="flex items-baseline gap-2"
-          style={{ fontFamily: "var(--font-sans-alex)" }}
-        >
-          <span className="text-[52px] font-light leading-none tracking-normal">
-            {hour}:{minute}
-          </span>
-          {dayPeriod ? (
-            <span className="text-[20px] font-light leading-none text-[var(--text-muted-alex)]">
-              {dayPeriod}
-            </span>
-          ) : null}
+    <section
+      role="timer"
+      aria-label={currentLabel}
+      className="relative h-full w-full overflow-hidden rounded-full border border-white/10 bg-[#1C1C1C] text-white"
+    >
+      <div aria-hidden="true" className="absolute inset-0">
+        <div className="absolute left-[16%] top-1/2 z-10 -translate-y-1/2 px-1 text-[30px] font-light leading-none tracking-normal">
+          {day}
         </div>
-        <p className="mt-2 text-sm text-[var(--text-muted-alex)]">
-          {formatDate(time, {
-            weekday: "long",
-            month: "short",
-            day: "numeric",
-          })}
-        </p>
+        <div
+          className="absolute inset-0 z-0"
+          style={{ transform: `rotate(${minuteAngle}deg)` }}
+        >
+          <span className="absolute left-1/2 top-[9%] h-[41%] w-[2px] -translate-x-1/2 rounded-full bg-[#EF4444]" />
+        </div>
+        <div
+          className="absolute inset-0 z-0"
+          style={{ transform: `rotate(${hourAngle}deg)` }}
+        >
+          <span className="absolute left-1/2 top-[22%] h-[28%] w-[2px] -translate-x-1/2 rounded-full bg-[#EF4444]" />
+        </div>
+        <div className="absolute left-1/2 top-1/2 z-40 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
+        <div className="absolute right-[14%] top-1/2 z-10 -translate-y-1/2 px-1 text-[30px] font-light leading-none tracking-normal">
+          {date}
+        </div>
       </div>
     </section>
   );

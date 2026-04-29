@@ -20,7 +20,9 @@ describe("HomeView", () => {
     expect(canvas).not.toBeNull();
     fireEvent.doubleClick(canvas as Element, { clientX: 100, clientY: 100 });
 
-    await user.click(screen.getByRole("button", { name: /clock/i }));
+    expect(screen.queryByRole("button", { name: /clock/i })).toBeNull();
+    await user.hover(screen.getByRole("button", { name: /app/i }));
+    await user.click(screen.getByRole("menuitem", { name: /clock/i }));
 
     expect(useHomeWidgetStore.getState().instances).toMatchObject([
       { type: "clock" },
@@ -31,7 +33,7 @@ describe("HomeView", () => {
     useHomeWidgetStore.getState().addWidget("clock", 130, 66);
 
     render(<HomeView onOpenAgent={vi.fn()} onSelectSession={vi.fn()} />);
-    fireEvent.doubleClick(screen.getByText(/local time/i));
+    fireEvent.doubleClick(screen.getByRole("timer", { name: /local time/i }));
 
     expect(screen.queryByText("Tile")).not.toBeInTheDocument();
   });

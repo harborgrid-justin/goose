@@ -5,10 +5,10 @@ export function WeeklyHighlightsTile() {
   const { t } = useTranslation("home");
 
   return (
-    <section className="flex h-full w-full flex-col rounded-lg border border-black/10 bg-[#E7F4EA] p-5 text-[var(--text-default-alex)]">
+    <section className="flex h-full w-full flex-col rounded-lg border border-[#22C55E]/20 bg-[#EAF8EF] p-5 text-[var(--text-default-alex)]">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-[13px] text-[var(--text-muted-alex)]">
-          <IconSparkles className="size-4" />
+          <IconSparkles className="size-4 text-[#22C55E]" />
           <span>{t("widgets.weeklyHighlights.kicker")}</span>
         </div>
         <IconArrowUpRight className="size-4 text-[var(--text-muted-alex)]" />
