@@ -826,12 +826,30 @@ impl Provider for OpenAiProvider {
 }
 
 fn parse_custom_headers(s: String) -> HashMap<String, String> {
-    s.split(',')
-        .filter_map(|header| {
-            let mut parts = header.splitn(2, '=');
-            let key = parts.next().map(|s| s.trim().to_string())?;
-            let value = parts.next().map(|s| s.trim().to_string())?;
-            Some((key, value))
+    // Split on commas not inside double quotes, then parse each key=value pair.
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for ch in s.chars() {
+        match ch {
+            '"' => in_quotes = !in_quotes,
+            ',' if !in_quotes => {
+                fields.push(std::mem::take(&mut current));
+            }
+            _ => current.push(ch),
+        }
+    }
+    fields.push(current);
+
+    fields
+        .iter()
+        .filter_map(|field| {
+            let (key, value) = field.split_once('=')?;
+            let value = value.trim();
+            let value = value.strip_prefix('"').unwrap_or(value);
+            let value = value.strip_suffix('"').unwrap_or(value);
+            Some((key.trim().to_string(), value.to_string()))
         })
         .collect()
 }
@@ -1224,5 +1242,30 @@ mod tests {
             msg.contains("dynamic_models: false"),
             "error message should mention dynamic_models: false; got: {msg}"
         );
+    }
+
+    #[test]
+    fn parse_custom_headers_simple() {
+        let headers = parse_custom_headers("key1=value1,key2=value2".to_string());
+        assert_eq!(headers.get("key1").unwrap(), "value1");
+        assert_eq!(headers.get("key2").unwrap(), "value2");
+    }
+
+    #[test]
+    fn parse_custom_headers_quoted_value_with_commas() {
+        let headers =
+            parse_custom_headers(r#"x-litellm-tags="tag1,tag2",x-other=plain"#.to_string());
+        assert_eq!(headers.get("x-litellm-tags").unwrap(), "tag1,tag2");
+        assert_eq!(headers.get("x-other").unwrap(), "plain");
+    }
+
+    #[test]
+    fn parse_custom_headers_mixed() {
+        let headers = parse_custom_headers(
+            r#"Authorization=Bearer token,x-tags="a,b,c",x-plain=hello"#.to_string(),
+        );
+        assert_eq!(headers.get("Authorization").unwrap(), "Bearer token");
+        assert_eq!(headers.get("x-tags").unwrap(), "a,b,c");
+        assert_eq!(headers.get("x-plain").unwrap(), "hello");
     }
 }
