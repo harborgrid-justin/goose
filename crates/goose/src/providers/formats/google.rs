@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::borrow::Cow;
 use uuid::Uuid;
 
-use crate::conversation::message::{Message, MessageContent, ProviderMetadata};
+use crate::conversation::message::{ActionRequiredData, Message, MessageContent, ProviderMetadata};
 use serde_json::{json, Map, Value};
 use std::ops::Deref;
 
@@ -63,6 +63,34 @@ fn build_function_response_part(name: &str, text: String) -> Map<String, Value> 
 
 /// Convert internal Message format to Google's API message specification
 pub fn format_messages(messages: &[Message]) -> Vec<Value> {
+    use std::collections::HashMap;
+    let mut tool_name_by_id = HashMap::new();
+    for message in messages {
+        for content in &message.content {
+            match content {
+                MessageContent::ToolRequest(request) => {
+                    if let Ok(tool_call) = &request.tool_call {
+                        tool_name_by_id
+                            .insert(request.id.clone(), sanitize_function_name(&tool_call.name));
+                    }
+                }
+                MessageContent::ToolConfirmationRequest(request) => {
+                    tool_name_by_id.insert(
+                        request.id.clone(),
+                        sanitize_function_name(&request.tool_name),
+                    );
+                }
+                MessageContent::ActionRequired(action) => {
+                    if let ActionRequiredData::ToolConfirmation { id, tool_name, .. } = &action.data
+                    {
+                        tool_name_by_id.insert(id.clone(), sanitize_function_name(tool_name));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     let filtered: Vec<_> = messages
         .iter()
         .filter(|m| m.is_agent_visible())
@@ -174,15 +202,23 @@ pub fn format_messages(messages: &[Message]) -> Vec<Value> {
                             if text.is_empty() {
                                 text = "Tool call is done.".to_string();
                             }
-                            let mut part = build_function_response_part(&response.id, text);
+                            let name = tool_name_by_id
+                                .get(&response.id)
+                                .map(|s| s.as_str())
+                                .unwrap_or(&response.id);
+                            let mut part = build_function_response_part(name, text);
                             if include_signature {
                                 maybe_insert_signature_from_metadata(&mut part, &response.metadata);
                             }
                             parts.push(json!(part));
                         }
                         Err(e) => {
+                            let name = tool_name_by_id
+                                .get(&response.id)
+                                .map(|s| s.as_str())
+                                .unwrap_or(&response.id);
                             let mut part =
-                                build_function_response_part(&response.id, format!("Error: {}", e));
+                                build_function_response_part(name, format!("Error: {}", e));
                             if include_signature {
                                 maybe_insert_signature_from_metadata(&mut part, &response.metadata);
                             }
@@ -764,6 +800,31 @@ mod tests {
         assert_eq!(
             payload[0]["parts"][0]["functionResponse"]["response"]["content"]["text"],
             "Hello"
+        );
+    }
+
+    #[test]
+    fn test_message_to_google_spec_tool_result_matching_request() {
+        let arguments = json!({
+            "param1": "value1"
+        });
+        let req_msg = set_up_tool_request_message(
+            "my_unique_id",
+            CallToolRequestParams::new("my_actual_tool_name").with_arguments(object(arguments)),
+        );
+        let tool_result: Vec<Content> = vec![Content::text("Hello")];
+        let resp_msg = set_up_tool_response_message("my_unique_id", tool_result);
+
+        let messages = vec![req_msg, resp_msg];
+        let payload = format_messages(&messages);
+        // Note: the tool request is filtered out if it's user or action required? Wait, let's see how they are formatted.
+        // Let's print or assert payload info.
+        // The first message is Role::User/ToolRequest. In format_messages, ToolRequest role is "user" ("model" has thinking/tool calls).
+        // Let's assert the payload matches our expectation.
+        let tool_resp_part = payload.iter().find(|m| m["role"] == "model").unwrap();
+        assert_eq!(
+            tool_resp_part["parts"][0]["functionResponse"]["name"],
+            "my_actual_tool_name"
         );
     }
 
