@@ -84,6 +84,7 @@ mod dispatch;
 mod extensions;
 mod load_session;
 mod new_session;
+mod new_session_agent_manager;
 mod onboarding;
 mod providers;
 mod resources;

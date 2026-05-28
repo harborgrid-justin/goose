@@ -1,7 +1,7 @@
 use crate::agents::{Agent, AgentConfig, GoosePlatform};
 use crate::config::paths::Paths;
 use crate::config::permission::PermissionManager;
-use crate::config::{Config, GooseMode};
+use crate::config::Config;
 use crate::scheduler::Scheduler;
 use crate::scheduler_trait::SchedulerTrait;
 use crate::session::SessionManager;
@@ -20,10 +20,8 @@ static AGENT_MANAGER: OnceCell<Arc<AgentManager>> = OnceCell::const_new();
 
 pub struct AgentManager {
     sessions: Arc<RwLock<LruCache<String, Arc<Agent>>>>,
-    scheduler: Arc<dyn SchedulerTrait>,
-    session_manager: Arc<SessionManager>,
+    agent_config: AgentConfig,
     default_provider: Arc<RwLock<Option<Arc<dyn crate::providers::base::Provider>>>>,
-    default_mode: GooseMode,
     cancel_tokens: Arc<RwLock<HashMap<String, CancellationToken>>>,
     /// Per-session creation locks.  When `get_or_create_agent` misses the
     /// `sessions` cache it acquires the per-session lock before doing the
@@ -37,23 +35,14 @@ pub struct AgentManager {
 }
 
 impl AgentManager {
-    pub async fn new(
-        session_manager: Arc<SessionManager>,
-        schedule_file_path: std::path::PathBuf,
-        max_sessions: Option<usize>,
-        default_mode: GooseMode,
-    ) -> Result<Self> {
-        let scheduler = Scheduler::new(schedule_file_path, session_manager.clone()).await?;
-
+    pub async fn new(agent_config: AgentConfig, max_sessions: Option<usize>) -> Result<Self> {
         let capacity = NonZeroUsize::new(max_sessions.unwrap_or(DEFAULT_MAX_SESSION))
             .unwrap_or_else(|| NonZeroUsize::new(100).unwrap());
 
         let manager = Self {
             sessions: Arc::new(RwLock::new(LruCache::new(capacity))),
-            scheduler,
-            session_manager,
+            agent_config,
             default_provider: Arc::new(RwLock::new(None)),
-            default_mode,
             cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
             creation_locks: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -71,13 +60,18 @@ impl AgentManager {
                 let default_mode = config.get_goose_mode().unwrap_or_default();
                 let schedule_file_path = Paths::data_dir().join("schedule.json");
                 let session_manager = Arc::new(SessionManager::instance());
-                let manager = Self::new(
+                let scheduler = Scheduler::new(schedule_file_path, Arc::clone(&session_manager))
+                    .await
+                    .map(|scheduler| scheduler as Arc<dyn SchedulerTrait>)?;
+                let agent_config = AgentConfig::new(
                     session_manager,
-                    schedule_file_path,
-                    Some(max_sessions),
+                    PermissionManager::instance(),
+                    Some(scheduler),
                     default_mode,
-                )
-                .await?;
+                    config.get_goose_disable_session_naming().unwrap_or(false),
+                    GoosePlatform::GooseDesktop,
+                );
+                let manager = Self::new(agent_config, Some(max_sessions)).await?;
                 Ok(Arc::new(manager))
             })
             .await
@@ -85,12 +79,17 @@ impl AgentManager {
     }
 
     pub fn scheduler(&self) -> Arc<dyn SchedulerTrait> {
-        Arc::clone(&self.scheduler)
+        Arc::clone(
+            self.agent_config
+                .scheduler_service
+                .as_ref()
+                .expect("AgentManager scheduler is not configured"),
+        )
     }
 
     /// Get the shared SessionManager for session-only operations
     pub fn session_manager(&self) -> &SessionManager {
-        &self.session_manager
+        self.agent_config.session_manager.as_ref()
     }
 
     pub async fn set_default_provider(&self, provider: Arc<dyn crate::providers::base::Provider>) {
@@ -159,27 +158,27 @@ impl AgentManager {
             }
         }
 
-        let mut mode = self.default_mode;
-        let permission_manager = PermissionManager::instance();
-
-        if let Ok(session) = self.session_manager.get_session(session_id, false).await {
+        let mut mode = self.agent_config.goose_mode;
+        if let Ok(session) = self
+            .agent_config
+            .session_manager
+            .get_session(session_id, false)
+            .await
+        {
             mode = session.goose_mode;
             info!(goose_mode = %mode, session_id = %session_id, "Session loaded");
         }
 
-        let config = AgentConfig::new(
-            Arc::clone(&self.session_manager),
-            permission_manager,
-            Some(Arc::clone(&self.scheduler)),
-            mode,
-            Config::global()
-                .get_goose_disable_session_naming()
-                .unwrap_or(false),
-            GoosePlatform::GooseDesktop,
-        );
+        let mut config = self.agent_config.clone();
+        config.goose_mode = mode;
         let agent = Arc::new(Agent::with_config(config));
 
-        if let Ok(session) = self.session_manager.get_session(session_id, false).await {
+        if let Ok(session) = self
+            .agent_config
+            .session_manager
+            .get_session(session_id, false)
+            .await
+        {
             if session.provider_name.is_some() {
                 info!(
                     "Restoring evicted session {} (provider: {:?})",
@@ -328,6 +327,8 @@ mod tests {
 
     use test_case::test_case;
 
+    use crate::agents::{AgentConfig, GoosePlatform};
+    use crate::config::permission::PermissionManager;
     use crate::config::GooseMode;
     use crate::execution::SessionExecutionMode;
     use crate::session::SessionManager;
@@ -336,15 +337,15 @@ mod tests {
 
     async fn create_test_manager(temp_dir: &TempDir) -> AgentManager {
         let session_manager = Arc::new(SessionManager::new(temp_dir.path().to_path_buf()));
-        let schedule_path = temp_dir.path().join("schedule.json");
-        AgentManager::new(
+        let agent_config = AgentConfig::new(
             session_manager,
-            schedule_path,
-            Some(100),
+            PermissionManager::instance(),
+            None,
             GooseMode::default(),
-        )
-        .await
-        .unwrap()
+            false,
+            GoosePlatform::GooseDesktop,
+        );
+        AgentManager::new(agent_config, Some(100)).await.unwrap()
     }
 
     #[test]
@@ -632,15 +633,15 @@ mod tests {
         // even though only `max_sessions` agents remain cached.
         let temp_dir = TempDir::new().unwrap();
         let session_manager = Arc::new(SessionManager::new(temp_dir.path().to_path_buf()));
-        let schedule_path = temp_dir.path().join("schedule.json");
-        let manager = AgentManager::new(
+        let agent_config = AgentConfig::new(
             session_manager,
-            schedule_path,
-            Some(2),
+            PermissionManager::instance(),
+            None,
             GooseMode::default(),
-        )
-        .await
-        .unwrap();
+            false,
+            GoosePlatform::GooseDesktop,
+        );
+        let manager = AgentManager::new(agent_config, Some(2)).await.unwrap();
 
         manager.get_or_create_agent("a".into()).await.unwrap();
         manager.get_or_create_agent("b".into()).await.unwrap();
