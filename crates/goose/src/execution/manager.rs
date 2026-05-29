@@ -1,5 +1,5 @@
 use crate::agents::mcp_client::GooseMcpHostInfo;
-use crate::agents::{Agent, AgentConfig, GoosePlatform};
+use crate::agents::{Agent, AgentConfig, ExtensionLoadResult, GoosePlatform};
 use crate::config::paths::Paths;
 use crate::config::permission::PermissionManager;
 use crate::config::Config;
@@ -24,6 +24,12 @@ pub struct RuntimeContext {
     pub mcp_host_info: Option<GooseMcpHostInfo>,
     pub use_login_shell_path: Option<bool>,
     pub session_name_update_tx: Option<mpsc::UnboundedSender<SessionNameUpdate>>,
+}
+
+pub struct AgentManagerGetResult {
+    pub agent: Arc<Agent>,
+    pub agent_created: bool,
+    pub extension_results: Vec<ExtensionLoadResult>,
 }
 
 pub struct AgentManager {
@@ -115,11 +121,26 @@ impl AgentManager {
         session_id: String,
         runtime_context: RuntimeContext,
     ) -> Result<Arc<Agent>> {
+        Ok(self
+            .get_or_create_agent_with_runtime_context_result(session_id, runtime_context)
+            .await?
+            .agent)
+    }
+
+    pub async fn get_or_create_agent_with_runtime_context_result(
+        &self,
+        session_id: String,
+        runtime_context: RuntimeContext,
+    ) -> Result<AgentManagerGetResult> {
         // Fast path: agent already cached.
         {
             let mut sessions = self.sessions.write().await;
             if let Some(existing) = sessions.get(&session_id) {
-                return Ok(Arc::clone(existing));
+                return Ok(AgentManagerGetResult {
+                    agent: Arc::clone(existing),
+                    agent_created: false,
+                    extension_results: Vec::new(),
+                });
             }
         }
 
@@ -169,13 +190,17 @@ impl AgentManager {
         &self,
         session_id: &str,
         runtime_context: RuntimeContext,
-    ) -> Result<Arc<Agent>> {
+    ) -> Result<AgentManagerGetResult> {
         // Re-check under the creation lock: another caller may have
         // finished creating the agent while we were waiting.
         {
             let mut sessions = self.sessions.write().await;
             if let Some(existing) = sessions.get(session_id) {
-                return Ok(Arc::clone(existing));
+                return Ok(AgentManagerGetResult {
+                    agent: Arc::clone(existing),
+                    agent_created: false,
+                    extension_results: Vec::new(),
+                });
             }
         }
 
@@ -196,6 +221,7 @@ impl AgentManager {
         config.use_login_shell_path = runtime_context.use_login_shell_path;
         config.session_name_update_tx = runtime_context.session_name_update_tx;
         let agent = Arc::new(Agent::with_config(config));
+        let mut extension_results = Vec::new();
 
         if let Ok(session) = self
             .agent_config
@@ -216,7 +242,7 @@ impl AgentManager {
                     );
                 }
             }
-            agent.load_extensions_from_session(&session).await;
+            extension_results = agent.load_extensions_from_session(&session).await;
         }
 
         if agent.provider().await.is_err() {
@@ -233,7 +259,11 @@ impl AgentManager {
 
         let mut sessions = self.sessions.write().await;
         if let Some(existing) = sessions.get(session_id) {
-            return Ok(Arc::clone(existing));
+            return Ok(AgentManagerGetResult {
+                agent: Arc::clone(existing),
+                agent_created: false,
+                extension_results: Vec::new(),
+            });
         }
         // `push` returns the LRU-evicted entry when the cache is at
         // capacity, which `put` does not surface.  We need the evicted
@@ -249,7 +279,11 @@ impl AgentManager {
             self.prune_creation_lock(&evicted_id).await;
         }
 
-        Ok(agent)
+        Ok(AgentManagerGetResult {
+            agent,
+            agent_created: true,
+            extension_results,
+        })
     }
 
     /// Drop the per-session creation lock for `session_id` if no other

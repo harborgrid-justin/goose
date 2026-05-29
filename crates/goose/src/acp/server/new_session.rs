@@ -1,12 +1,9 @@
 use crate::acp::server::{
-    build_mode_state, build_usage_updates, builtin_to_extension_config, meta_string, sid_short,
-    validate_absolute_cwd, ResultExt,
+    build_mode_state, build_usage_updates, meta_string, sid_short, validate_absolute_cwd, ResultExt,
 };
-use crate::config::extensions::get_enabled_extensions_with_config;
 use crate::config::{Config, GooseMode};
 use crate::model::ModelConfig;
 use crate::session::SessionType;
-use crate::session::{EnabledExtensionsState, ExtensionState};
 
 use super::{GooseAcpAgent, GooseAcpSession};
 use agent_client_protocol::schema::{
@@ -14,7 +11,7 @@ use agent_client_protocol::schema::{
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, error};
+use tracing::debug;
 
 impl GooseAcpAgent {
     #[allow(dead_code)]
@@ -48,7 +45,7 @@ impl GooseAcpAgent {
             })?;
         let current_mode: GooseMode = config.get_goose_mode().unwrap_or_default();
         let t0 = std::time::Instant::now();
-        let goose_session = self
+        let mut goose_session = self
             .session_manager
             .create_session(
                 args.cwd.clone(),
@@ -59,16 +56,9 @@ impl GooseAcpAgent {
             .await
             .internal_err_ctx("Failed to create session")?;
         let mut builder = self.session_manager.update(&goose_session.id);
-        let mut extensions = get_enabled_extensions_with_config(&config);
-        extensions.extend(self.builtins.iter().map(|b| builtin_to_extension_config(b)));
-        let mut extension_data = goose_session.extension_data.clone();
-        EnabledExtensionsState::new(extensions)
-            .to_extension_data(&mut extension_data)
-            .internal_err_ctx("Failed to initialize session extensions")?;
         builder = builder
             .provider_name(resolved_provider)
-            .model_config(resolved_model_config)
-            .extension_data(extension_data);
+            .model_config(resolved_model_config);
         if let Some(pid) = project_id {
             builder = builder.project_id(Some(pid));
         }
@@ -77,29 +67,25 @@ impl GooseAcpAgent {
             .await
             .internal_err_ctx("Failed to update session")?;
 
-        let goose_session = self
+        goose_session = self
             .session_manager
             .get_session(&goose_session.id, false)
             .await
             .internal_err_ctx("Failed to reload session")?;
+        let extensions = self.initial_session_extensions(config, args.mcp_servers)?;
+        goose_session = self
+            .persist_session_extensions(&goose_session, extensions)
+            .await?;
         let session_id_str = goose_session.id.clone();
         let sid = sid_short(&session_id_str);
         debug!(target: "perf", sid = %sid, ms = t0.elapsed().as_millis() as u64, "perf: new_session create_session");
 
-        let agent = self
-            .get_or_create_session_agent(cx, session_id_str.clone())
+        let agent_result = self
+            .get_or_create_session_agent_with_results(cx, session_id_str.clone())
             .await?;
+        let agent = agent_result.agent.clone();
         self.apply_acp_extension_overrides(cx, &agent, &goose_session)
             .await;
-
-        if let Err(error) =
-            Self::add_mcp_extensions(&agent, args.mcp_servers, &goose_session.id).await
-        {
-            error!(
-                error = %error,
-                "new_session MCP server setup failed; continuing with ready session"
-            );
-        }
 
         let acp_session = GooseAcpSession {
             agent: agent.clone(),
@@ -139,6 +125,11 @@ impl GooseAcpAgent {
         }
         if let Some(co) = config_options {
             response = response.config_options(co);
+        }
+        if let Ok(extension_results) = serde_json::to_value(&agent_result.extension_results) {
+            let mut meta = serde_json::Map::new();
+            meta.insert("extensionResults".to_string(), extension_results);
+            response = response.meta(meta);
         }
         if let Some(updates) = usage_updates {
             cx.send_notification(updates.custom)?;

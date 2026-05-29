@@ -22,7 +22,7 @@ use crate::conversation::message::{
     ActionRequiredData, Message, MessageContent, SystemNotificationContent, SystemNotificationType,
     ToolRequest,
 };
-use crate::execution::manager::{AgentManager, RuntimeContext};
+use crate::execution::manager::{AgentManager, AgentManagerGetResult, RuntimeContext};
 use crate::mcp_utils::ToolResult;
 use crate::permission::permission_confirmation::PrincipalType;
 use crate::permission::{Permission, PermissionConfirmation};
@@ -32,7 +32,7 @@ use crate::providers::inventory::{
     RefreshPlan, RefreshSkipReason,
 };
 use crate::session::session_manager::{SessionListCursor, SessionType};
-use crate::session::{EnabledExtensionsState, Session, SessionManager};
+use crate::session::{EnabledExtensionsState, ExtensionState, Session, SessionManager};
 use crate::source_roots::SourceRoot;
 use crate::utils::sanitize_unicode_tags;
 use agent_client_protocol::schema::{
@@ -531,6 +531,17 @@ fn mcp_server_to_extension_config(mcp_server: McpServer) -> Result<ExtensionConf
         McpServer::Sse(_) => Err("SSE is unsupported, migrate to streamable_http".to_string()),
         _ => Err("Unknown MCP server type".to_string()),
     }
+}
+
+fn push_or_replace_extension(extensions: &mut Vec<ExtensionConfig>, extension: ExtensionConfig) {
+    let name = extension.name().to_string();
+    if let Some(index) = extensions
+        .iter()
+        .position(|existing| existing.name() == name)
+    {
+        extensions.remove(index);
+    }
+    extensions.push(extension);
 }
 
 fn get_requested_line(arguments: Option<&rmcp::model::JsonObject>) -> Option<u32> {
@@ -1325,8 +1336,19 @@ impl GooseAcpAgent {
         cx: &ConnectionTo<Client>,
         session_id: String,
     ) -> Result<Arc<Agent>, agent_client_protocol::Error> {
+        Ok(self
+            .get_or_create_session_agent_with_results(cx, session_id)
+            .await?
+            .agent)
+    }
+
+    async fn get_or_create_session_agent_with_results(
+        &self,
+        cx: &ConnectionTo<Client>,
+        session_id: String,
+    ) -> Result<AgentManagerGetResult, agent_client_protocol::Error> {
         self.agent_manager
-            .get_or_create_agent_with_runtime_context(
+            .get_or_create_agent_with_runtime_context_result(
                 session_id,
                 RuntimeContext {
                     mcp_host_info: self.client_mcp_host_info.get().cloned(),
@@ -1337,6 +1359,55 @@ impl GooseAcpAgent {
             )
             .await
             .internal_err_ctx("Failed to create agent")
+    }
+
+    fn initial_session_extensions(
+        &self,
+        config: &Config,
+        mcp_servers: Vec<McpServer>,
+    ) -> Result<Vec<ExtensionConfig>, agent_client_protocol::Error> {
+        let mut extensions = Vec::new();
+        for builtin in &self.builtins {
+            push_or_replace_extension(&mut extensions, builtin_to_extension_config(builtin));
+        }
+
+        if mcp_servers.is_empty() {
+            for extension in get_enabled_extensions_with_config(config) {
+                push_or_replace_extension(&mut extensions, extension);
+            }
+        } else {
+            for mcp_server in mcp_servers {
+                let extension = mcp_server_to_extension_config(mcp_server).map_err(|message| {
+                    agent_client_protocol::Error::invalid_params().data(message)
+                })?;
+                push_or_replace_extension(&mut extensions, extension);
+            }
+        }
+
+        Ok(extensions)
+    }
+
+    async fn persist_session_extensions(
+        &self,
+        session: &Session,
+        extensions: Vec<ExtensionConfig>,
+    ) -> Result<Session, agent_client_protocol::Error> {
+        let mut extension_data = session.extension_data.clone();
+        EnabledExtensionsState::new(extensions)
+            .to_extension_data(&mut extension_data)
+            .internal_err_ctx("Failed to initialize session extensions")?;
+
+        self.session_manager
+            .update(&session.id)
+            .extension_data(extension_data)
+            .apply()
+            .await
+            .internal_err_ctx("Failed to update session extensions")?;
+
+        self.session_manager
+            .get_session(&session.id, false)
+            .await
+            .internal_err_ctx("Failed to reload session")
     }
 
     async fn apply_acp_extension_overrides(
