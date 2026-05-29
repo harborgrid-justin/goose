@@ -25,16 +25,23 @@ use syn::{
 ///
 /// # Handler signatures
 ///
-/// Handlers may take zero or one parameter (beyond `&self`):
+/// Handlers receive the connection, followed by zero or one request parameter:
 ///
 /// ```ignore
 /// // No params — called for requests with no/empty params
 /// #[custom_method(GetExtensionsRequest)]
-/// async fn on_get_extensions(&self) -> Result<GetExtensionsResponse, agent_client_protocol::Error> { .. }
+/// async fn on_get_extensions(
+///     &self,
+///     cx: &ConnectionTo<Client>,
+/// ) -> Result<GetExtensionsResponse, agent_client_protocol::Error> { .. }
 ///
 /// // Typed params — JSON params auto-deserialized
 /// #[custom_method(GetSessionRequest)]
-/// async fn on_get_session(&self, req: GetSessionRequest) -> Result<GetSessionResponse, agent_client_protocol::Error> { .. }
+/// async fn on_get_session(
+///     &self,
+///     cx: &ConnectionTo<Client>,
+///     req: GetSessionRequest,
+/// ) -> Result<GetSessionResponse, agent_client_protocol::Error> { .. }
 /// ```
 ///
 /// The return type must be `Result<T, agent_client_protocol::Error>` where `T: Serialize`.
@@ -92,7 +99,7 @@ pub fn custom_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
                         if <#req_type as agent_client_protocol::JsonRpcMessage>::matches_method(method) {
                             let req = serde_json::from_value(params)
                                 .map_err(|e| agent_client_protocol::Error::invalid_params().data(e.to_string()))?;
-                            let result = self.#fn_ident(req).await?;
+                            let result = self.#fn_ident(cx, req).await?;
                             return serde_json::to_value(&result)
                                 .map_err(|e| agent_client_protocol::Error::internal_error().data(e.to_string()));
                         }
@@ -101,7 +108,7 @@ pub fn custom_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 None => {
                     quote! {
                         if <#req_type as agent_client_protocol::JsonRpcMessage>::matches_method(method) {
-                            let result = self.#fn_ident().await?;
+                            let result = self.#fn_ident(cx).await?;
                             return serde_json::to_value(&result)
                                 .map_err(|e| agent_client_protocol::Error::internal_error().data(e.to_string()));
                         }
@@ -184,6 +191,7 @@ pub fn custom_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let dispatcher = quote! {
         async fn handle_custom_request(
             &self,
+            cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
             method: &str,
             params: serde_json::Value,
         ) -> Result<serde_json::Value, agent_client_protocol::Error> {
@@ -221,8 +229,10 @@ struct Route {
     ok_type: Option<Type>,
 }
 
-/// Extract the type of the first non-self parameter, if any.
+/// Extract the request parameter after `&self` and connection, if any.
 fn extract_param_type(sig: &syn::Signature) -> Option<Type> {
+    let mut saw_connection = false;
+
     for input in &sig.inputs {
         if let FnArg::Typed(pat_type) = input {
             if let Pat::Ident(pat_ident) = &*pat_type.pat {
@@ -230,6 +240,12 @@ fn extract_param_type(sig: &syn::Signature) -> Option<Type> {
                     continue;
                 }
             }
+
+            if !saw_connection {
+                saw_connection = true;
+                continue;
+            }
+
             return Some((*pat_type.ty).clone());
         }
     }

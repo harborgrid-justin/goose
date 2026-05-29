@@ -367,30 +367,33 @@ impl HandleDispatchFrom<Client> for GooseAcpHandler {
                     }
                 })
                 .await
-                .otherwise({
-                    let agent = agent.clone();
-                    let cx = cx.clone();
-                    |message: Dispatch| async move {
-                        match message {
-                            Dispatch::Request(req, responder) => {
-                                cx.spawn(async move {
-                                    match agent.dispatch_custom_request(&req.method, req.params).await {
-                                        Ok(json) => responder.respond(json)?,
-                                        Err(e) => responder.respond_with_error(e)?,
-                                    }
-                                    Ok(())
-                                })?;
+                .otherwise(|message: Dispatch| async {
+                    match message {
+                        Dispatch::Request(req, responder) => {
+                            let agent = agent.clone();
+                            let cx_spawn = cx.clone();
+                            let method = req.method;
+                            let params = req.params;
+                            cx.spawn(async move {
+                                match agent
+                                    .dispatch_custom_request(&cx_spawn, &method, params)
+                                    .await
+                                {
+                                    Ok(json) => responder.respond(json)?,
+                                    Err(e) => responder.respond_with_error(e)?,
+                                }
                                 Ok(())
-                            }
-                            Dispatch::Response(result, router) => {
-                                debug!(method = %router.method(), id = %router.id(), ok = result.is_ok(), "routing response");
-                                router.respond_with_result(result)?;
-                                Ok(())
-                            }
-                            Dispatch::Notification(notif) => {
-                                debug!(method = %notif.method, "unhandled notification");
-                                Ok(())
-                            }
+                            })?;
+                            Ok(())
+                        }
+                        Dispatch::Response(result, router) => {
+                            debug!(method = %router.method(), id = %router.id(), ok = result.is_ok(), "routing response");
+                            router.respond_with_result(result)?;
+                            Ok(())
+                        }
+                        Dispatch::Notification(notif) => {
+                            debug!(method = %notif.method, "unhandled notification");
+                            Ok(())
                         }
                     }
                 })
