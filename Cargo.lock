@@ -4754,12 +4754,18 @@ dependencies = [
 name = "goose-types"
 version = "1.36.0"
 dependencies = [
+ "anyhow",
  "base64 0.22.1",
  "chrono",
+ "env-lock",
+ "once_cell",
+ "regex",
  "rmcp",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 1.0.69",
+ "tracing",
  "unicode-normalization",
  "utoipa 4.2.3",
  "uuid",

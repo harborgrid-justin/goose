@@ -8,9 +8,12 @@ pub use rmcp::model::ErrorData;
 use rmcp::model::ResourceContents;
 use unicode_normalization::UnicodeNormalization;
 
+pub mod canonical;
 pub mod conversation;
+pub mod model;
 
 pub use conversation::Conversation;
+pub use model::{Config, ConfigError, ConfigParamError, EnvConfig, ModelConfig, ThinkingEffort};
 
 pub type ToolResult<T> = Result<T, ErrorData>;
 
