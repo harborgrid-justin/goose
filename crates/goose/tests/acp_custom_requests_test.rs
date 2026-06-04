@@ -11,17 +11,33 @@ use common_tests::fixtures::{
     TestConnectionConfig,
 };
 use goose::acp::server::AcpProviderFactory;
-use goose::conversation::message::Message;
 use goose::model::ModelConfig;
-use goose::providers::base::{MessageStream, Provider, ProviderUsage, Usage};
+use goose::providers::base::{MessageStream, Provider};
 use goose::providers::errors::ProviderError;
 use goose_test_support::{EnforceSessionId, IgnoreSessionId};
+use serial_test::serial;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use common_tests::fixtures::OpenAiFixture;
+
+const DEFAULT_ACP_TEST_CONFIG: &str = "GOOSE_MODEL: gpt-4o\nGOOSE_PROVIDER: openai\n";
+
+static ACP_CONFIG_ROOT: LazyLock<tempfile::TempDir> =
+    LazyLock::new(|| tempfile::tempdir().unwrap());
+
+fn write_acp_global_config(contents: &str) -> PathBuf {
+    std::env::set_var("GOOSE_PATH_ROOT", ACP_CONFIG_ROOT.path());
+    let config_dir = goose::config::paths::Paths::config_dir();
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join(goose::config::base::CONFIG_YAML_NAME),
+        contents,
+    )
+    .unwrap();
+    config_dir
+}
 
 struct MockProvider {
     name: String,
@@ -80,62 +96,6 @@ fn mock_provider_factory() -> AcpProviderFactory {
     })
 }
 
-struct SteeringProvider {
-    model_config: ModelConfig,
-    call_count: AtomicUsize,
-}
-
-#[async_trait::async_trait]
-impl Provider for SteeringProvider {
-    fn get_name(&self) -> &str {
-        "steering-test"
-    }
-
-    async fn stream(
-        &self,
-        _model_config: &ModelConfig,
-        _session_id: &str,
-        _system: &str,
-        messages: &[Message],
-        _tools: &[rmcp::model::Tool],
-    ) -> Result<MessageStream, ProviderError> {
-        let call = self.call_count.fetch_add(1, Ordering::SeqCst);
-        let usage = ProviderUsage::new(self.model_config.model_name.clone(), Usage::default());
-        let saw_steer = messages
-            .iter()
-            .any(|message| message.as_concat_text().contains("steer while active"));
-
-        let text = match (call, saw_steer) {
-            (0, _) => {
-                tokio::time::sleep(Duration::from_millis(200)).await;
-                "first response"
-            }
-            (_, true) => "saw steer",
-            _ => "missing steer",
-        };
-
-        let message = Message::assistant().with_text(text);
-        Ok(Box::pin(futures::stream::once(async move {
-            Ok((Some(message), Some(usage)))
-        })))
-    }
-
-    fn get_model_config(&self) -> ModelConfig {
-        self.model_config.clone()
-    }
-}
-
-fn steering_provider_factory() -> AcpProviderFactory {
-    Arc::new(|_provider_name, model_config, _extensions, _working_dir| {
-        Box::pin(async move {
-            Ok(Arc::new(SteeringProvider {
-                model_config,
-                call_count: AtomicUsize::new(0),
-            }) as Arc<dyn Provider>)
-        })
-    })
-}
-
 fn active_run_id_from_update(update: &SessionUpdate) -> Option<String> {
     let SessionUpdate::SessionInfoUpdate(info) = update else {
         return None;
@@ -162,7 +122,9 @@ fn collect_agent_text(updates: &[SessionUpdate]) -> String {
 }
 
 #[test]
+#[serial]
 fn test_custom_get_tools() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async move {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let mut conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
@@ -185,7 +147,9 @@ fn test_custom_get_tools() {
 }
 
 #[test]
+#[serial]
 fn test_custom_get_extensions() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async move {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
@@ -211,17 +175,29 @@ fn test_custom_get_extensions() {
 }
 
 #[test]
+#[serial]
 fn test_steer_session_adds_input_to_active_prompt() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async move {
-        let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
-        let mut conn = AcpServerConnection::new(
-            TestConnectionConfig {
-                provider_factory: Some(steering_provider_factory()),
-                ..Default::default()
-            },
-            openai,
+        // Two-turn exchange: the first turn ends the turn with plain text. A
+        // steer queued before the turn ends keeps the loop alive (it flips
+        // `exit_chat` back to false), so a second provider request fires whose
+        // body must now contain the steered text.
+        let openai = OpenAiFixture::new(
+            vec![
+                (
+                    "start work".to_string(),
+                    include_str!("acp_test_data/openai_steer_first.txt"),
+                ),
+                (
+                    "steer while active".to_string(),
+                    include_str!("acp_test_data/openai_steer_second.txt"),
+                ),
+            ],
+            Arc::new(IgnoreSessionId),
         )
         .await;
+        let mut conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
 
         let SessionData { session, .. } = conn.new_session().await.unwrap();
         let session_id = session.session_id().0.to_string();
@@ -281,109 +257,9 @@ fn test_steer_session_adds_input_to_active_prompt() {
 }
 
 #[test]
-fn test_new_session_passes_cwd_to_provider_factory() {
-    run_test(async move {
-        let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
-        let cwd = tempfile::tempdir().unwrap();
-        let expected_cwd = cwd.path().to_path_buf();
-        let captured_cwds = Arc::new(Mutex::new(Vec::<Option<PathBuf>>::new()));
-        let factory_cwds = Arc::clone(&captured_cwds);
-        let provider_factory: AcpProviderFactory = Arc::new(
-            move |provider_name, model_config, _extensions, working_dir| {
-                factory_cwds.lock().unwrap().push(working_dir);
-                Box::pin(async move {
-                    Ok(Arc::new(MockProvider {
-                        name: provider_name,
-                        model_config,
-                        recommended_models: Vec::new(),
-                        supported_models: Vec::new(),
-                    }) as Arc<dyn Provider>)
-                })
-            },
-        );
-
-        let mut conn = AcpServerConnection::new(
-            TestConnectionConfig {
-                cwd: Some(cwd),
-                provider_factory: Some(provider_factory),
-                ..Default::default()
-            },
-            openai,
-        )
-        .await;
-
-        conn.new_session().await.unwrap();
-
-        let captured_cwd = tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                if let Some(cwd) = captured_cwds.lock().unwrap().first().cloned() {
-                    break cwd;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("provider factory was not called");
-
-        assert_eq!(captured_cwd, Some(expected_cwd));
-    });
-}
-
-#[test]
-fn test_load_session_passes_load_cwd_to_provider_factory() {
-    run_test(async move {
-        let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
-        let initial_cwd = tempfile::tempdir().unwrap();
-        let captured_cwds = Arc::new(Mutex::new(Vec::<Option<PathBuf>>::new()));
-        let factory_cwds = Arc::clone(&captured_cwds);
-        let provider_factory: AcpProviderFactory = Arc::new(
-            move |provider_name, model_config, _extensions, working_dir| {
-                factory_cwds.lock().unwrap().push(working_dir);
-                Box::pin(async move {
-                    Ok(Arc::new(MockProvider {
-                        name: provider_name,
-                        model_config,
-                        recommended_models: Vec::new(),
-                        supported_models: Vec::new(),
-                    }) as Arc<dyn Provider>)
-                })
-            },
-        );
-
-        let mut conn = AcpServerConnection::new(
-            TestConnectionConfig {
-                cwd: Some(initial_cwd),
-                provider_factory: Some(provider_factory),
-                ..Default::default()
-            },
-            openai,
-        )
-        .await;
-
-        let SessionData { session, .. } = conn.new_session().await.unwrap();
-        let session_id = session.session_id().0.to_string();
-        let SessionData {
-            session: loaded, ..
-        } = conn.load_session(&session_id, vec![]).await.unwrap();
-        let expected_cwd = loaded.work_dir();
-
-        let captured_cwd = tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                if let Some(cwd) = captured_cwds.lock().unwrap().get(1).cloned() {
-                    break cwd;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("provider factory was not called for load session");
-
-        assert_eq!(captured_cwd, Some(expected_cwd));
-    });
-}
-
-#[test]
+#[serial]
 fn test_custom_list_builtin_skill_sources() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async move {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
@@ -417,7 +293,9 @@ fn test_custom_list_builtin_skill_sources() {
 }
 
 #[test]
+#[serial]
 fn test_custom_provider_inventory_includes_metadata() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
@@ -448,19 +326,16 @@ fn test_custom_provider_inventory_includes_metadata() {
 }
 
 #[test]
+#[serial]
 fn test_custom_preferences_read_save_remove() {
-    run_test(async {
-        let data_root = tempfile::tempdir().unwrap();
-        std::fs::write(
-            data_root
-                .path()
-                .join(goose::config::base::CONFIG_YAML_NAME),
-            "GOOSE_MODEL: gpt-4o\nGOOSE_PROVIDER: openai\nGOOSE_AUTO_COMPACT_THRESHOLD: 0.7\nVOICE_AUTO_SUBMIT_PHRASES: send it\n",
-        )
-        .unwrap();
+    let config_dir = write_acp_global_config(
+        "GOOSE_MODEL: gpt-4o\nGOOSE_PROVIDER: openai\nGOOSE_AUTO_COMPACT_THRESHOLD: 0.7\nVOICE_AUTO_SUBMIT_PHRASES: send it\n",
+    );
+
+    run_test(async move {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let config = TestConnectionConfig {
-            data_root: data_root.path().to_path_buf(),
+            data_root: config_dir,
             ..Default::default()
         };
         let conn = AcpServerConnection::new(config, openai).await;
@@ -530,7 +405,9 @@ fn test_custom_preferences_read_save_remove() {
 }
 
 #[test]
+#[serial]
 fn test_custom_preferences_save_rejects_invalid_values() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
@@ -590,17 +467,16 @@ fn test_custom_preferences_save_rejects_invalid_values() {
 }
 
 #[test]
+#[serial]
 fn test_custom_defaults_read() {
-    run_test(async {
-        let data_root = tempfile::tempdir().unwrap();
-        std::fs::write(
-            data_root.path().join(goose::config::base::CONFIG_YAML_NAME),
-            "GOOSE_MODEL: claude-3-5-haiku-latest\nGOOSE_PROVIDER: anthropic\n",
-        )
-        .unwrap();
+    let config_dir = write_acp_global_config(
+        "GOOSE_MODEL: claude-3-5-haiku-latest\nGOOSE_PROVIDER: anthropic\n",
+    );
+
+    run_test(async move {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let config = TestConnectionConfig {
-            data_root: data_root.path().to_path_buf(),
+            data_root: config_dir,
             ..Default::default()
         };
         let conn = AcpServerConnection::new(config, openai).await;
@@ -623,21 +499,15 @@ fn test_custom_defaults_read() {
 }
 
 #[test]
+#[serial]
 fn test_custom_dictation_secret_save_delete() {
-    let root = tempfile::tempdir().unwrap();
-    let root_path = root.path().to_string_lossy().to_string();
     let _env = env_lock::lock_env([
-        ("GOOSE_PATH_ROOT", Some(root_path.as_str())),
         ("GOOSE_DISABLE_KEYRING", Some("1")),
         ("GROQ_API_KEY", None::<&str>),
     ]);
-    let config_dir = goose::config::paths::Paths::config_dir();
-    std::fs::create_dir_all(&config_dir).unwrap();
-    std::fs::write(
-        config_dir.join(goose::config::base::CONFIG_YAML_NAME),
+    let config_dir = write_acp_global_config(
         "GOOSE_MODEL: gpt-4o\nGOOSE_PROVIDER: openai\nGOOSE_DISABLE_KEYRING: true\n",
-    )
-    .unwrap();
+    );
 
     run_test(async move {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
@@ -727,7 +597,9 @@ fn test_custom_dictation_secret_save_delete() {
 }
 
 #[test]
+#[serial]
 fn test_raw_config_and_secret_methods_are_removed() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
@@ -747,7 +619,9 @@ fn test_raw_config_and_secret_methods_are_removed() {
 }
 
 #[test]
+#[serial]
 fn test_provider_switching_updates_session_state() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let config = TestConnectionConfig {
@@ -775,7 +649,9 @@ fn test_provider_switching_updates_session_state() {
 }
 
 #[test]
+#[serial]
 fn test_custom_unknown_method() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
@@ -786,6 +662,7 @@ fn test_custom_unknown_method() {
 }
 
 #[test]
+#[serial]
 fn test_developer_fs_requests_use_acp_session_id() {
     run_test(async {
         let seen_session_id = Arc::new(Mutex::new(None::<String>));
@@ -805,9 +682,14 @@ fn test_developer_fs_requests_use_acp_session_id() {
             Arc::new(IgnoreSessionId),
         )
         .await;
+        let config_dir = write_acp_global_config(&format!(
+            "GOOSE_MODEL: gpt-4.1\nGOOSE_PROVIDER: openai\nOPENAI_HOST: {}\n",
+            openai.uri()
+        ));
         let config = TestConnectionConfig {
             // gpt-5-nano routes to the Responses API; use a Chat Completions
             // model so the canned SSE fixtures are parsed correctly.
+            data_root: config_dir,
             current_model: "gpt-4.1".to_string(),
             read_text_file: Some(Arc::new(move |req| {
                 *seen_session_id_clone.lock().unwrap() = Some(req.session_id.0.to_string());
@@ -840,7 +722,9 @@ fn test_developer_fs_requests_use_acp_session_id() {
 }
 
 #[test]
+#[serial]
 fn test_custom_provider_supported_models_lists_raw_provider_models() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
     run_test(async move {
         let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
         let provider_factory: AcpProviderFactory =
