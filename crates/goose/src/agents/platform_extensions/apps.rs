@@ -19,11 +19,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 pub static EXTENSION_NAME: &str = "apps";
+
+/// Overrides where apps are stored. When unset, a `apps/` folder in the current
+/// working directory is used if it exists, otherwise goose's data directory.
+const APPS_DIR_ENV: &str = "GOOSE_APPS_DIR";
 
 const DEFAULT_WINDOW_PROPS: WindowProps = WindowProps {
     width: 800,
@@ -101,7 +105,7 @@ pub struct AppsManagerClient {
 
 impl AppsManagerClient {
     pub fn new(context: PlatformExtensionContext) -> Result<Self, String> {
-        let apps_dir = Paths::in_data_dir(EXTENSION_NAME);
+        let apps_dir = Self::apps_dir();
 
         fs::create_dir_all(&apps_dir)
             .map_err(|e| format!("Failed to create apps directory: {}", e))?;
@@ -115,6 +119,24 @@ impl AppsManagerClient {
         client.ensure_default_apps()?;
 
         Ok(client)
+    }
+
+    fn apps_dir() -> PathBuf {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        Self::resolve_apps_dir(std::env::var(APPS_DIR_ENV).ok(), &cwd)
+    }
+
+    fn resolve_apps_dir(env_override: Option<String>, current_dir: &Path) -> PathBuf {
+        if let Some(dir) = env_override.filter(|s| !s.is_empty()) {
+            return PathBuf::from(dir);
+        }
+
+        let local = current_dir.join(EXTENSION_NAME);
+        if local.is_dir() {
+            return local;
+        }
+
+        Paths::in_data_dir(EXTENSION_NAME)
     }
 
     fn create_info() -> InitializeResult {
@@ -685,4 +707,41 @@ fn extract_tool_response<T: serde::de::DeserializeOwned>(
     }
 
     Err(format!("LLM did not call the required tool: {}", tool_name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_override_takes_precedence() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolved =
+            AppsManagerClient::resolve_apps_dir(Some("/custom/apps".to_string()), dir.path());
+        assert_eq!(resolved, PathBuf::from("/custom/apps"));
+    }
+
+    #[test]
+    fn empty_env_override_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join(EXTENSION_NAME)).unwrap();
+        let resolved = AppsManagerClient::resolve_apps_dir(Some(String::new()), dir.path());
+        assert_eq!(resolved, dir.path().join(EXTENSION_NAME));
+    }
+
+    #[test]
+    fn local_apps_dir_is_used_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join(EXTENSION_NAME)).unwrap();
+        let resolved = AppsManagerClient::resolve_apps_dir(None, dir.path());
+        assert_eq!(resolved, dir.path().join(EXTENSION_NAME));
+    }
+
+    #[test]
+    fn falls_back_to_data_dir_without_local_apps() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolved = AppsManagerClient::resolve_apps_dir(None, dir.path());
+        assert_ne!(resolved, dir.path().join(EXTENSION_NAME));
+        assert!(resolved.ends_with(EXTENSION_NAME));
+    }
 }
