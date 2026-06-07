@@ -20,6 +20,18 @@ You can create, modify, and delete apps through chat without needing to edit fil
 - **macOS/Linux:** `~/.local/share/goose/apps/`
 - **Windows:** `%APPDATA%\Block\goose\data\apps\`
 
+### Choosing where apps are stored
+
+The Apps extension resolves its apps directory in this order:
+
+1. The `GOOSE_APPS_DIR` environment variable, if set.
+2. An `apps/` folder in the current working directory, if it exists.
+3. goose's data directory (the defaults listed above).
+
+This lets you keep apps next to a project: run goose from a directory that
+contains an `apps/` folder (or point `GOOSE_APPS_DIR` at one) and your apps are
+created and edited there instead of the hidden data directory.
+
 ## Configuration
 
 <PlatformExtensionNote/>
